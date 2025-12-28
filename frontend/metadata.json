@@ -1,0 +1,5 @@
+{
+  "name": "API2MCP Minimalist Dashboard",
+  "description": "A Notion-style minimalist dashboard for managing API-to-MCP bridge configurations, featuring real-time status monitoring and AI-assisted endpoint generation.",
+  "requestFramePermissions": []
+}

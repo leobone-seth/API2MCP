@@ -1,0 +1,8 @@
+fastmcp
+httpx
+pymysql
+python-dotenv
+fastapi
+uvicorn
+aiofiles
+python-multipart

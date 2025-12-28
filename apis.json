@@ -1,0 +1,26 @@
+{
+  "_comment": "该文件描述要暴露为 MCP tools 的 HTTP 接口列表。每个 api.name 会成为 tool 名称；tool 入参统一为 request（可选）。",
+  "version": 1,
+  "apis": [
+    {
+      "_comment": "GET 示例：把查询参数放到 request.query；default_query 会作为默认值叠加。",
+      "name": "httpbin_get",
+      "description": "调用 httpbin 的 GET 示例；通过 request.query 传入查询参数。",
+      "method": "GET",
+      "url": "https://httpbin.org/get",
+      "default_query": {
+        "from": "api2mcp"
+      }
+    },
+    {
+      "_comment": "POST JSON 示例：把 JSON body 放到 request.json；default_json 会作为默认值（可被 request.json 覆盖）。",
+      "name": "httpbin_post_json",
+      "description": "调用 httpbin 的 POST 示例；通过 request.json 传入 JSON body。",
+      "method": "POST",
+      "url": "https://httpbin.org/post",
+      "default_json": {
+        "hello": "world"
+      }
+    }
+  ]
+}
