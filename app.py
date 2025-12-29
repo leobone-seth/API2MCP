@@ -18,8 +18,9 @@ load_dotenv()
 
 app = FastAPI(title="API2MCP Admin")
 
+@app.api_route("/mcp_{namespace}", methods=["GET", "POST", "PUT", "DELETE"])
 @app.api_route("/mcp_{namespace}/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
-async def mcp_proxy(namespace: str, path: str, request: Request):
+async def mcp_proxy(namespace: str, request: Request, path: str = ""):
     """
     代理 MCP 请求到对应的命名空间进程。
     支持 SSE 和普通 HTTP 请求。
@@ -34,9 +35,18 @@ async def mcp_proxy(namespace: str, path: str, request: Request):
     info = mcp_processes[namespace]
     port = info["port"]
     
-    # 构造目标 URL
-    # 转发给后端的 URL 统一为根路径，不再带前缀
-    target_url = f"http://127.0.0.1:{port}/{path}"
+    transport = str(info.get("transport") or "").lower()
+    if not transport:
+        transport = "sse"
+
+    accept = (request.headers.get("accept") or "").lower()
+    wants_sse = (not path) and (request.method.upper() == "GET") and ("text/event-stream" in accept)
+
+    if path:
+        target_path = path
+    else:
+        target_path = "sse" if (transport == "sse" and wants_sse) else "mcp"
+    target_url = f"http://127.0.0.1:{port}/{target_path}"
     if request.query_params:
         target_url += f"?{request.query_params}"
     
@@ -47,64 +57,61 @@ async def mcp_proxy(namespace: str, path: str, request: Request):
     headers.pop("content-length", None)
     headers.pop("connection", None)
     
-    # 添加转发头，帮助后端生成正确的绝对 URL
-    # 这里我们告诉后端，它在代理之后的路径前缀
+    # 重要：告诉后端它当前暴露出来的外部前缀
+    # 如果访问的是 /mcp_default，前缀就是 /mcp_default
     headers["x-forwarded-host"] = request.headers.get("host", f"localhost:5000")
     headers["x-forwarded-proto"] = request.url.scheme
     headers["x-forwarded-prefix"] = f"/mcp_{namespace}"
     
     # 获取请求体
     body = await request.body()
-    
-    client = httpx.AsyncClient()
-    
-    try:
-        if path == "sse":
-            # 处理 SSE 流式响应
-            async def stream_generator():
-                try:
-                    async with client.stream(
-                        request.method,
-                        target_url,
-                        headers=headers,
-                        content=body, # 显式传递请求体
-                        timeout=None
-                    ) as response:
-                        async for chunk in response.aiter_bytes():
-                            yield chunk
-                finally:
-                    await client.aclose()
-            
-            return StreamingResponse(
-                stream_generator(),
-                media_type="text/event-stream"
-            )
-        else:
-            # 处理普通请求（如 /messages）
+
+    if target_path == "sse":
+        async def body_iterator():
+            async with httpx.AsyncClient() as client:
+                async with client.stream(
+                    request.method,
+                    target_url,
+                    headers=headers,
+                    content=body,
+                    timeout=None,
+                ) as resp:
+                    async for chunk in resp.aiter_bytes():
+                        yield chunk
+
+        return StreamingResponse(
+            body_iterator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    async with httpx.AsyncClient() as client:
+        try:
             resp = await client.request(
                 request.method,
                 target_url,
                 headers=headers,
-                content=body, # 显式传递请求体
-                timeout=60.0
+                content=body,
+                timeout=60.0,
             )
-            
-            # 准备响应头，移除可能导致冲突的头
-            resp_headers = dict(resp.headers)
-            resp_headers.pop("content-length", None)
-            resp_headers.pop("transfer-encoding", None)
-            resp_headers.pop("connection", None)
-            
-            # 返回响应
-            return StreamingResponse(
-                (chunk for chunk in [resp.content]),
-                status_code=resp.status_code,
-                headers=resp_headers
-            )
-    except Exception as e:
-        await client.aclose()
-        print(f"Proxy error for {namespace}: {e}")
-        raise HTTPException(status_code=502, detail=f"Error proxying to namespace service: {e}")
+        except Exception as e:
+            print(f"Proxy error for {namespace}: {e}")
+            raise HTTPException(status_code=502, detail=f"Error proxying to namespace service: {e}")
+
+    resp_headers = dict(resp.headers)
+    resp_headers.pop("content-length", None)
+    resp_headers.pop("transfer-encoding", None)
+    resp_headers.pop("connection", None)
+
+    return StreamingResponse(
+        (chunk for chunk in [resp.content]),
+        status_code=resp.status_code,
+        headers=resp_headers,
+    )
 
 # 允许跨域
 app.add_middleware(
@@ -120,12 +127,13 @@ APIS_JSON_PATH = Path("apis.json").resolve()
 
 import threading
 
-def enqueue_output(out, queue):
-    # 使用 utf-8 编码读取输出，如果失败则尝试 gbk (Windows 常用)
-    import codecs
-    for line in iter(out.readline, ''):
-        if line:
-            queue.append(line.strip())
+def enqueue_output(out, queue, log_file_path):
+    with open(log_file_path, 'a', encoding='utf-8') as f:
+        for line in iter(out.readline, ''):
+            stripped = line.strip()
+            if stripped:
+                queue.append(stripped)
+            f.write(line)
     out.close()
 
 # 数据模型
@@ -203,7 +211,13 @@ async def get_apis(namespace: str = 'default'):
             with open(APIS_JSON_PATH, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 apis = data if isinstance(data, list) else data.get("apis", [])
-                for a in apis: a['id'] = a.get('name')
+                
+                # Filter by namespace if not 'all'
+                if namespace != 'all':
+                    apis = [a for a in apis if a.get('namespace', 'default') == namespace]
+                
+                for a in apis: 
+                    if 'id' not in a: a['id'] = a.get('name')
                 return apis
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
@@ -421,7 +435,17 @@ async def get_status():
     }
 
 @app.post("/api/start")
-async def start_mcp(namespace: str = None):
+async def start_mcp(request: Request = None, namespace: str = None):
+    # 如果 namespace 在 query 中没有，尝试从 JSON body 获取
+    if namespace is None and request is not None:
+        try:
+            body = await request.json()
+            namespace = body.get('namespace')
+        except:
+            # 如果没有 body 或是 query 传参，FastAPI 会把 query 的 namespace 给到参数
+            # 这里的 namespace = None 是正常的，表示“启动全部”
+            pass
+            
     global mcp_processes
     
     # 如果 namespace 为 None，启动所有已存在的命名空间
@@ -430,13 +454,33 @@ async def start_mcp(namespace: str = None):
         namespaces_to_start = []
         
         if mode == 'mysql':
-            namespaces_to_start = db.get_namespaces()
-            # 同时也确保 'all' 命名空间被考虑（如果逻辑上需要）
-            if 'all' not in namespaces_to_start:
-                namespaces_to_start.append('all')
+            try:
+                conn = db.get_connection()
+                with conn.cursor() as cursor:
+                    # 获取所有有接口定义的命名空间
+                    cursor.execute("SELECT DISTINCT namespace FROM api_specs WHERE enabled = 1")
+                    namespaces_to_start = [row['namespace'] for row in cursor.fetchall()]
+                conn.close()
+            except Exception as e:
+                print(f"Error fetching namespaces from mysql: {e}")
+                namespaces_to_start = ['default']
+            
+            # 如果没有特别定义的命名空间，确保至少有 default
+            if not namespaces_to_start:
+                namespaces_to_start = ['default']
         else:
-            # 文件模式下，至少有 default
-            namespaces_to_start = ['default', 'all']
+            # 文件模式下，尝试从 apis.json 获取所有命名空间
+            try:
+                if APIS_JSON_PATH.exists():
+                    with open(APIS_JSON_PATH, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        apis = data if isinstance(data, list) else data.get("apis", [])
+                        namespaces_to_start = list(set([a.get('namespace', 'default') for a in apis if a.get('enabled', 1)]))
+            except:
+                pass
+                
+            if not namespaces_to_start:
+                namespaces_to_start = ['default']
             
         results = []
         for ns in namespaces_to_start:
@@ -455,12 +499,12 @@ async def start_single_mcp(namespace: str):
         return {"status": "already running", "namespace": namespace}
     
     try:
-        # 分配端口：默认 8020，如果是 all 也是 8020。其他按顺序分配
+        # 分配端口：默认 8020。其他按顺序分配
         base_port = 8020
         used_ports = [info["port"] for info in mcp_processes.values() if info["process"].poll() is None]
         
         port = base_port
-        if namespace != 'all' and namespace != 'default':
+        if namespace != 'default':
             port = base_port + 1
             while port in used_ports:
                 port += 1
@@ -469,7 +513,8 @@ async def start_single_mcp(namespace: str):
         import sys
         env = {**os.environ, "PYTHONPATH": os.getcwd(), "MCP_NAMESPACE": namespace}
         
-        cmd = [sys.executable, "server.py", "--port", str(port)]
+        transport = os.environ.get("MCP_TRANSPORT", "streamable-http")
+        cmd = [sys.executable, "server.py", "--port", str(port), "--transport", transport]
         
         process = subprocess.Popen(
             cmd,
@@ -482,15 +527,19 @@ async def start_single_mcp(namespace: str):
             bufsize=1
         )
         
+        log_dir = 'log'
+        os.makedirs(log_dir, exist_ok=True)
+        log_file_path = os.path.join(log_dir, f'mcp_{namespace}.log')
         output = []
         mcp_processes[namespace] = {
             "process": process,
             "port": port,
-            "output": output
+            "output": output,
+            "transport": transport,
         }
         
         # 启动线程读取输出
-        t = threading.Thread(target=enqueue_output, args=(process.stdout, output))
+        t = threading.Thread(target=enqueue_output, args=(process.stdout, output, log_file_path))
         t.daemon = True
         t.start()
         
@@ -524,18 +573,16 @@ async def get_mcp_info(request: Request):
         # 获取该命名空间的工具清单
         tools = []
         if mode == 'mysql':
-            if ns == 'all':
-                specs = db.load_all_enabled_api_specs()
-            else:
-                specs = db.load_api_specs_from_mysql(ns)
-                specs = [s for s in specs if s.get('enabled')]
+            specs = db.load_api_specs_from_mysql(ns)
+            specs = [s for s in specs if s.get('enabled')]
             tools = [s['name'] for s in specs]
         else:
             if APIS_JSON_PATH.exists():
                 with open(APIS_JSON_PATH, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     apis = data if isinstance(data, list) else data.get("apis", [])
-                    tools = [a['name'] for a in apis if a.get('enabled', 1)]
+                    # 在文件模式下也要按命名空间过滤工具
+                    tools = [a['name'] for a in apis if a.get('enabled', 1) and a.get('namespace', 'default') == ns]
         
         # 获取安全的命名空间路径
         safe_ns = "".join([c for c in ns if c.isalnum() or c in ('_', '-')])
@@ -544,7 +591,7 @@ async def get_mcp_info(request: Request):
         results.append({
             "running": True,
             "namespace": ns,
-            "url": f"http://{host}/mcp_{safe_ns}/sse",
+            "url": f"http://{host}/mcp_{safe_ns}",
             "tools": tools
         })
     
@@ -591,7 +638,7 @@ async def restore_mcp_services():
             if status == 'running':
                 print(f"正在自动恢复命名空间服务: {ns}")
                 try:
-                    await start_mcp(ns)
+                    await start_mcp(namespace=ns)
                 except Exception as e:
                     print(f"恢复服务 {ns} 失败: {e}")
                     db.update_server_status(ns, 'stopped')

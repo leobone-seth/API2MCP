@@ -17,7 +17,7 @@ const App: React.FC = () => {
   const [endpoints, setEndpoints] = useState<APISpec[]>([]);
   const [namespaces, setNamespaces] = useState<NamespaceMeta[]>([]);
   const [currentNamespace, setCurrentNamespace] = useState<string>(() => {
-    return localStorage.getItem('api2mcp_current_namespace') || 'all';
+    return localStorage.getItem('api2mcp_current_namespace') || 'default';
   });
 
   useEffect(() => {
@@ -145,20 +145,6 @@ const App: React.FC = () => {
           <div className="space-y-8">
             <div className="bg-[#f7f6f3] p-4 rounded-xl border notion-border flex items-center justify-between">
               <div className="flex gap-4 items-center overflow-x-auto pb-2 sm:pb-0">
-                <button
-                  onClick={() => setCurrentNamespace('all')}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex flex-col items-start min-w-[120px] ${
-                    currentNamespace === 'all'
-                      ? 'bg-white shadow-sm border-blue-500/30 border text-blue-600'
-                      : 'hover:bg-[#efefed] text-[#6b6a65]'
-                  }`}
-                >
-                  <span className="text-xs opacity-70 font-bold uppercase tracking-wider">GLOBAL</span>
-                  <div className="flex items-center justify-between w-full">
-                    <span>全部接口</span>
-                    <span className="text-[10px] bg-blue-50 px-1.5 rounded ml-2">ALL</span>
-                  </div>
-                </button>
                 {namespaces.map(ns => (
                   <button
                     key={ns.name}

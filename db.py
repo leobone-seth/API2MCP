@@ -113,7 +113,10 @@ def load_api_specs_from_mysql(namespace: str = 'default') -> List[Dict[str, Any]
     conn = get_connection()
     try:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT * FROM api_specs WHERE namespace = %s", (namespace,))
+            if namespace == 'all':
+                cursor.execute("SELECT * FROM api_specs")
+            else:
+                cursor.execute("SELECT * FROM api_specs WHERE namespace = %s", (namespace,))
             rows = cursor.fetchall()
             
             # 转换为 server.py 需要的格式

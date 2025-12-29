@@ -65,7 +65,7 @@ class ToolRequest(TypedDict, total=False):
 
 mcp = FastMCP("api2mcp")
 
-DEFAULT_TRANSPORT = "http"
+DEFAULT_TRANSPORT = "streamable-http"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8020
 
@@ -280,26 +280,14 @@ def main() -> None:
         return
 
     transport = str(args.transport).lower()
-    # 注意：这里 mcp.run() 会阻塞，所以目前的逻辑实际上是将所有工具注册到了同一个 MCP 实例中。
-    # 如果要真正实现 URL 地址隔离（如 IP/命名空间），需要多个进程或高级路由。
-    # 这里我们先按照注册所有工具到同一个实例，但通过控制台回显满足您的视觉需求。
-    if transport == "http" or transport == "sse":
-        from fastapi import FastAPI
-        import uvicorn
-        from fastapi.middleware.proxy_headers import ProxyHeadersMiddleware
-        
-        target_namespace = os.environ.get("MCP_NAMESPACE", "default")
-        
-        # 使用 FastMCP 提供的 as_app() 获取基础应用
-        app = mcp.as_app()
-        
-        # 直接在基础应用上添加代理头中间件
-        app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["*"])
-        
-        print(f"MCP {transport.upper()} Server 运行在: http://{args.host}:{args.port}/sse (命名空间: {target_namespace})")
-        uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+    if transport in ("http", "streamable-http"):
+        mcp.run(transport="streamable-http", host=args.host, port=args.port, path="/mcp")
+    elif transport == "sse":
+        mcp.run(transport="sse", host=args.host, port=args.port, path="/sse")
+    elif transport == "stdio":
+        mcp.run(transport="stdio")
     else:
-        mcp.run()
+        raise ValueError(f"Unsupported transport: {transport}")
 
 
 if __name__ == "__main__":

@@ -41,8 +41,11 @@ export const apiService = {
     if (!resp.ok) throw new Error('Failed to delete API');
   },
 
-  async startMcp(namespace: string = 'default'): Promise<{ status: string }> {
-    const resp = await fetch(`${API_BASE}/api/start?namespace=${encodeURIComponent(namespace)}`, {
+  async startMcp(namespace?: string): Promise<{ status: string }> {
+    const url = namespace 
+      ? `${API_BASE}/api/start?namespace=${encodeURIComponent(namespace)}` 
+      : `${API_BASE}/api/start`;
+    const resp = await fetch(url, {
       method: 'POST',
     });
     if (!resp.ok) throw new Error('Failed to start MCP server');
