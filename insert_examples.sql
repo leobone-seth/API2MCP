@@ -1,7 +1,6 @@
 USE api2mcp;
 
--- 插入 httpbin_get 示例
-INSERT INTO api_specs (
+INSERT INTO api_specs_app_v1 (
     namespace, 
     tool_name, 
     description, 
@@ -19,8 +18,7 @@ INSERT INTO api_specs (
     1
 );
 
--- 插入 httpbin_post_json 示例
-INSERT INTO api_specs (
+INSERT INTO api_specs_app_v1 (
     namespace, 
     tool_name, 
     description, 

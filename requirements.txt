@@ -6,3 +6,4 @@ fastapi
 uvicorn
 aiofiles
 python-multipart
+typing_extensions

@@ -19,7 +19,8 @@ import argparse
 import json
 import os
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any
+from typing_extensions import TypedDict
 from urllib.parse import urljoin
 
 import httpx
@@ -45,6 +46,7 @@ class ApiSpec(TypedDict, total=False):
     default_query: dict[str, Any]
     default_json: Any
     default_data: Any
+    default_response: Any
     timeout_s: float
 
 
@@ -227,33 +229,28 @@ def main() -> None:
     
     # 依据 .env 配置决定是从 mysql 读取还是从本地 json 读取
     storage_mode = os.environ.get("STORAGE_MODE", "local").lower()
-    
+    target_namespace = os.environ.get("MCP_NAMESPACE", "default")
+
     if storage_mode == "mysql":
-        # 获取当前指定的命名空间（通过环境变量传递）
-        target_namespace = os.environ.get("MCP_NAMESPACE", "default")
-        
-        # 获取所有正在使用的命名空间（仅用于控制台展示，或者根据 target_namespace 过滤）
+        # 保留原有 mysql 分支，便于未来需要时启用
         conn = db.get_connection()
         try:
             with conn.cursor() as cursor:
-                cursor.execute("SELECT DISTINCT namespace FROM api_specs WHERE enabled = 1")
+                cursor.execute("SELECT DISTINCT namespace FROM api_specs_app_v1 WHERE enabled = 1")
                 all_namespaces = [row['namespace'] for row in cursor.fetchall()]
         finally:
             conn.close()
 
         if target_namespace not in all_namespaces and target_namespace != "all":
-            # 如果指定的命名空间没有启用的接口，则退回 default
             specs = db.load_api_specs_from_mysql(target_namespace)
             enabled_specs = [s for s in specs if s.get('enabled')]
             if not enabled_specs:
                 print(f"Warning: Namespace '{target_namespace}' has no enabled APIs.")
-        
+
         print(f"\n{'='*50}")
         print(f"Starting MCP Server for namespace: {target_namespace}")
-        
-        # 加载目标命名空间的接口
+
         if target_namespace == "all":
-            # 如果是 all，加载所有已启用的
             enabled_specs = db.load_all_enabled_api_specs()
         else:
             specs = db.load_api_specs_from_mysql(target_namespace)
@@ -263,16 +260,16 @@ def main() -> None:
             print(f"\n加载接口 (数量: {len(enabled_specs)}):")
             for s in enabled_specs:
                 print(f" - {s['name']} ({s.get('namespace', 'default')})")
-            
             print(f"URL 地址：{args.host}:{args.port}/mcp")
             _register_api_tools(enabled_specs)
         else:
             print("No enabled API specs found.")
-            
         print(f"{'='*50}\n")
     else:
-        # 默认模式：本地文件
+        # 本地文件模式：按命名空间过滤 apis.json
         specs = _load_apis_json(Path(args.apis).resolve())
+        if target_namespace != "all":
+            specs = [s for s in specs if s.get("namespace", "default") == target_namespace]
         _register_api_tools(specs)
 
     if args.validate:
