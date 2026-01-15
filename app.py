@@ -12,8 +12,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
-import db  # 假设你的 db.py 包含了 MySQL 的基础操作
-
 # 加载环境变量
 load_dotenv()
 

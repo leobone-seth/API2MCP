@@ -27,8 +27,6 @@ import httpx
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 
-import db
-
 # 加载环境变量
 load_dotenv()
 
@@ -226,51 +224,14 @@ def _parse_args() -> argparse.Namespace:
 def main() -> None:
     # 启动入口：加载配置 -> 注册 tools -> 启动 FastMCP
     args = _parse_args()
-    
-    # 依据 .env 配置决定是从 mysql 读取还是从本地 json 读取
-    storage_mode = os.environ.get("STORAGE_MODE", "local").lower()
+    # 为兼容历史配置保留环境变量读取，但当前仅支持本地 JSON 模式
     target_namespace = os.environ.get("MCP_NAMESPACE", "default")
 
-    if storage_mode == "mysql":
-        # 保留原有 mysql 分支，便于未来需要时启用
-        conn = db.get_connection()
-        try:
-            with conn.cursor() as cursor:
-                cursor.execute("SELECT DISTINCT namespace FROM api_specs_app_v1 WHERE enabled = 1")
-                all_namespaces = [row['namespace'] for row in cursor.fetchall()]
-        finally:
-            conn.close()
+    specs = _load_apis_json(Path(args.apis).resolve())
+    if target_namespace != "all":
+        specs = [s for s in specs if s.get("namespace", "default") == target_namespace]
 
-        if target_namespace not in all_namespaces and target_namespace != "all":
-            specs = db.load_api_specs_from_mysql(target_namespace)
-            enabled_specs = [s for s in specs if s.get('enabled')]
-            if not enabled_specs:
-                print(f"Warning: Namespace '{target_namespace}' has no enabled APIs.")
-
-        print(f"\n{'='*50}")
-        print(f"Starting MCP Server for namespace: {target_namespace}")
-
-        if target_namespace == "all":
-            enabled_specs = db.load_all_enabled_api_specs()
-        else:
-            specs = db.load_api_specs_from_mysql(target_namespace)
-            enabled_specs = [s for s in specs if s.get('enabled')]
-
-        if enabled_specs:
-            print(f"\n加载接口 (数量: {len(enabled_specs)}):")
-            for s in enabled_specs:
-                print(f" - {s['name']} ({s.get('namespace', 'default')})")
-            print(f"URL 地址：{args.host}:{args.port}/mcp")
-            _register_api_tools(enabled_specs)
-        else:
-            print("No enabled API specs found.")
-        print(f"{'='*50}\n")
-    else:
-        # 本地文件模式：按命名空间过滤 apis.json
-        specs = _load_apis_json(Path(args.apis).resolve())
-        if target_namespace != "all":
-            specs = [s for s in specs if s.get("namespace", "default") == target_namespace]
-        _register_api_tools(specs)
+    _register_api_tools(specs)
 
     if args.validate:
         print(json.dumps({"tools": [s["name"] for s in specs]}, ensure_ascii=False, indent=2))
