@@ -109,7 +109,7 @@ const ServerStatusView: React.FC<ServerStatusViewProps> = ({ server, currentName
                   </h3>
                   <button 
                     onClick={() => handleStopNamespace(info.namespace!)}
-                    className="text-xs font-medium px-3 py-1 rounded-full bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700 border border-red-100 shadow-sm transition-colors"
+                    className="text-xs text-red-500 hover:text-red-700 opacity-0 group-hover:opacity-100 transition-opacity"
                   >
                     停止此实例
                   </button>

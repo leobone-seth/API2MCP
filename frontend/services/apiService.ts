@@ -16,51 +16,6 @@ export const apiService = {
     return resp.json();
   },
 
-  async createNamespace(data: { name: string; version: string; prot?: number | null }): Promise<void> {
-    const resp = await fetch(`${API_BASE}/api/namespaces`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-    if (!resp.ok) {
-      let message = 'Failed to create namespace';
-      try {
-        const errData = await resp.json();
-        if (errData && typeof errData.detail === 'string') {
-          message = errData.detail;
-        }
-      } catch {
-      }
-      throw new Error(message);
-    }
-  },
-
-  async updateNamespace(name: string, data: { name: string; version: string; prot?: number | null }): Promise<void> {
-    const resp = await fetch(`${API_BASE}/api/namespaces/${encodeURIComponent(name)}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-    if (!resp.ok) {
-      let message = 'Failed to update namespace';
-      try {
-        const errData = await resp.json();
-        if (errData && typeof errData.detail === 'string') {
-          message = errData.detail;
-        }
-      } catch {
-      }
-      throw new Error(message);
-    }
-  },
-
-  async deleteNamespace(name: string): Promise<void> {
-    const resp = await fetch(`${API_BASE}/api/namespaces/${encodeURIComponent(name)}`, {
-      method: 'DELETE',
-    });
-    if (!resp.ok) throw new Error('Failed to delete namespace');
-  },
-
   async addApi(api: APISpec): Promise<void> {
     const resp = await fetch(`${API_BASE}/api/apis`, {
       method: 'POST',
