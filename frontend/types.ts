@@ -20,6 +20,7 @@ export interface NamespaceMeta {
   version: string;
   created_at?: string;
   updated_at?: string;
+  prot?: number | null;
 }
 
 export interface APISpec {
@@ -34,6 +35,7 @@ export interface APISpec {
   default_query?: any;
   default_json?: any;
   default_data?: any;
+  default_response?: any;
   timeout_s?: number;
   enabled?: number;
   namespace?: string;
