@@ -21,6 +21,7 @@ const EndpointList: React.FC<EndpointListProps> = ({ endpoints, namespaces, curr
   const [headersError, setHeadersError] = useState<string | null>(null);
   const [bodyError, setBodyError] = useState<string | null>(null);
   const [responseError, setResponseError] = useState<string | null>(null);
+  const [curlInput, setCurlInput] = useState('');
 
   const normalizeJsonLike = (input: string) => {
     const withoutComments = input
@@ -76,6 +77,113 @@ const EndpointList: React.FC<EndpointListProps> = ({ endpoints, namespaces, curr
     }
   };
 
+  const parseCurlCommand = (input: string) => {
+    const result: {
+      method: HTTPMethod;
+      url: string;
+      baseUrl?: string;
+      path?: string;
+      headersText?: string;
+      bodyText?: string;
+    } = {
+      method: HTTPMethod.GET,
+      url: '',
+    };
+
+    const urlMatch = input.match(/https?:\/\/[^\s'"]+/i);
+    if (urlMatch) {
+      result.url = urlMatch[0];
+      try {
+        const u = new URL(result.url);
+        result.baseUrl = `${u.protocol}//${u.host}`;
+        result.path = u.pathname || '/';
+      } catch {
+      }
+    }
+
+    const methodMatch = input.match(/-\s*(X|request)\s+([A-Z]+)/i);
+    if (methodMatch && methodMatch[2]) {
+      const m = methodMatch[2].toUpperCase();
+      if (Object.values(HTTPMethod).includes(m as HTTPMethod)) {
+        result.method = m as HTTPMethod;
+      }
+    }
+
+    const headerRegex = /-H\s+('[^']*'|"[^"]*"|[^\s]+)/gi;
+    const headers: Record<string, string> = {};
+    let headerMatch;
+    while ((headerMatch = headerRegex.exec(input)) !== null) {
+      let raw = headerMatch[1] || '';
+      if ((raw.startsWith("'") && raw.endsWith("'")) || (raw.startsWith('"') && raw.endsWith('"'))) {
+        raw = raw.slice(1, -1);
+      }
+      const idx = raw.indexOf(':');
+      if (idx > 0) {
+        const key = raw.slice(0, idx).trim();
+        const value = raw.slice(idx + 1).trim();
+        if (key) headers[key] = value;
+      }
+    }
+    if (Object.keys(headers).length > 0) {
+      result.headersText = JSON.stringify(headers, null, 2);
+    }
+
+    const dataRegex = /--data-raw\s+('[^']*'|"[^"]*"|[^\s]+)|--data-binary\s+('[^']*'|"[^"]*"|[^\s]+)|--data\s+('[^']*'|"[^"]*"|[^\s]+)|-d\s+('[^']*'|"[^"]*"|[^\s]+)/i;
+    const dataMatch = input.match(dataRegex);
+    if (dataMatch) {
+      let raw = dataMatch[1] || dataMatch[2] || dataMatch[3] || dataMatch[4] || '';
+      if ((raw.startsWith("'") && raw.endsWith("'")) || (raw.startsWith('"') && raw.endsWith('"'))) {
+        raw = raw.slice(1, -1);
+      }
+      const trimmed = raw.trim();
+      if (trimmed) {
+        if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+          try {
+            const obj = JSON.parse(trimmed);
+            result.bodyText = JSON.stringify(obj, null, 2);
+          } catch {
+            result.bodyText = JSON.stringify({ raw: trimmed }, null, 2);
+          }
+        } else {
+          const params = new URLSearchParams(trimmed);
+          const obj: Record<string, string> = {};
+          params.forEach((v, k) => {
+            obj[k] = v;
+          });
+          if (Object.keys(obj).length > 0) {
+            result.bodyText = JSON.stringify(obj, null, 2);
+          } else {
+            result.bodyText = JSON.stringify({ raw: trimmed }, null, 2);
+          }
+        }
+      }
+    }
+
+    return result;
+  };
+
+  const handleImportCurl = () => {
+    const raw = curlInput.trim();
+    if (!raw) return;
+    try {
+      const parsed = parseCurlCommand(raw);
+      setEditingItem(prev => ({
+        ...prev!,
+        method: parsed.method,
+        url: parsed.url || prev?.url,
+        base_url: parsed.baseUrl || prev?.base_url,
+        path: parsed.path || prev?.path,
+        default_headers: parsed.headersText || prev?.default_headers,
+        default_json: parsed.bodyText || prev?.default_json,
+      }));
+      setHeadersError(null);
+      setBodyError(null);
+      setUrlError(null);
+    } catch (e) {
+      console.error('Failed to import from curl', e);
+    }
+  };
+
   const openAdd = () => {
     const initialNamespace =
       currentNamespace || (namespaces.length > 0 ? namespaces[0] : 'default');
@@ -85,6 +193,7 @@ const EndpointList: React.FC<EndpointListProps> = ({ endpoints, namespaces, curr
       timeout_s: 30,
       namespace: initialNamespace
     });
+    setCurlInput('');
     setModalMode('add');
   };
 
@@ -98,6 +207,7 @@ const EndpointList: React.FC<EndpointListProps> = ({ endpoints, namespaces, curr
       default_data: spec.default_data ? JSON.stringify(spec.default_data, null, 2) : '',
       default_response: spec.default_response ? JSON.stringify(spec.default_response, null, 2) : '',
     });
+    setCurlInput('');
     setModalMode('edit');
   };
 
@@ -405,6 +515,25 @@ const EndpointList: React.FC<EndpointListProps> = ({ endpoints, namespaces, curr
                   />
                 </div>
                 <div className="col-span-2">
+                  <label className="block text-xs font-bold text-[#6b6a65] uppercase mb-1">cURL 命令（可选）</label>
+                  <textarea
+                    className={`${inputClasses} font-mono h-20 resize-none`}
+                    value={curlInput}
+                    onChange={e => setCurlInput(e.target.value)}
+                    placeholder={`curl -X POST 'https://example.com/api' -H 'Content-Type: application/json' -d '{...}'`}
+                  />
+                  <div className="mt-1 text-[11px] text-[#8f8e88] flex items-center justify-between">
+                    <span>粘贴包含 URL、请求头和请求体的 cURL 命令</span>
+                    <button
+                      type="button"
+                      onClick={handleImportCurl}
+                      className="px-3 py-1 rounded-md text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 hover:border-blue-300 cursor-pointer shadow-sm transition-colors"
+                    >
+                      解析到上方字段
+                    </button>
+                  </div>
+                </div>
+                <div className="col-span-2">
                   <label className="block text-xs font-bold text-[#6b6a65] uppercase mb-1">完整 URL (优先级高于基础URL/路径)</label>
                   <div className="flex gap-2">
                     <input 
@@ -459,7 +588,7 @@ const EndpointList: React.FC<EndpointListProps> = ({ endpoints, namespaces, curr
                       <button
                         type="button"
                         onClick={() => handleFormatField('default_headers')}
-                        className="px-2 py-0.5 text-[11px] border notion-border rounded text-[#6b6a65] hover:bg-[#f1f0eb]"
+                        className="px-2.5 py-0.5 text-[11px] font-medium rounded-md bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 hover:border-blue-300 cursor-pointer shadow-sm transition-colors"
                       >
                         格式化
                       </button>
@@ -482,7 +611,7 @@ const EndpointList: React.FC<EndpointListProps> = ({ endpoints, namespaces, curr
                       <button
                         type="button"
                         onClick={() => handleFormatField('default_json')}
-                        className="px-2 py-0.5 text-[11px] border notion-border rounded text-[#6b6a65] hover:bg-[#f1f0eb]"
+                        className="px-2.5 py-0.5 text-[11px] font-medium rounded-md bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 hover:border-blue-300 cursor-pointer shadow-sm transition-colors"
                       >
                         格式化
                       </button>
@@ -505,7 +634,7 @@ const EndpointList: React.FC<EndpointListProps> = ({ endpoints, namespaces, curr
                       <button
                         type="button"
                         onClick={() => handleFormatField('default_response')}
-                        className="px-2 py-0.5 text-[11px] border notion-border rounded text-[#6b6a65] hover:bg-[#f1f0eb]"
+                        className="px-2.5 py-0.5 text-[11px] font-medium rounded-md bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 hover:border-blue-300 cursor-pointer shadow-sm transition-colors"
                       >
                         格式化
                       </button>
