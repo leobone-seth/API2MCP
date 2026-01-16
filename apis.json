@@ -312,6 +312,36 @@
       "enabled": 1,
       "timeout_s": 30.0,
       "namespace": "lobe"
+    },
+    {
+      "name": "get_series_pic",
+      "method": "GET",
+      "url": "https://lobe.wyoooni.net/source/search?folder_id=40699^&page=1^&pageSize=40^",
+      "base_url": "https://lobe.wyoooni.net",
+      "path": "/source/search",
+      "description": "获取天丝系列的图片",
+      "default_query": {},
+      "default_headers": {
+        "^\"accept": "",
+        "^\"accept-language": "",
+        "^\"cache-control": "",
+        "^\"priority": "",
+        "^\"sec-ch-ua": "",
+        "^\"sec-ch-ua-mobile": "",
+        "^\"sec-ch-ua-platform": "",
+        "^\"sec-fetch-dest": "",
+        "^\"sec-fetch-mode": "",
+        "^\"sec-fetch-site": "",
+        "^\"sec-fetch-user": "",
+        "^\"upgrade-insecure-requests": "",
+        "^\"user-agent": ""
+      },
+      "default_json": {},
+      "default_data": {},
+      "default_response": {},
+      "enabled": 0,
+      "timeout_s": 60.0,
+      "namespace": "lobe"
     }
   ]
 }
