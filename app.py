@@ -141,7 +141,7 @@ async def mcp_proxy(namespace: str, request: Request, path: str = ""):
     headers.pop("host", None)
     headers.pop("content-length", None)
     headers.pop("connection", None)
-    headers["x-forwarded-host"] = request.headers.get("host", f"localhost:5000")
+    headers["x-forwarded-host"] = request.headers.get("host", f"localhost:7023")
     headers["x-forwarded-proto"] = request.url.scheme
     headers["x-forwarded-prefix"] = f"/mcp_{namespace}"
 
@@ -496,5 +496,5 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 if __name__ == '__main__':
     import uvicorn
-    print("API2MCP 管理界面启动在: http://localhost:5000")
-    uvicorn.run(app, host='0.0.0.0', port=5000)
+    print("API2MCP 管理界面启动在: http://localhost:7023")
+    uvicorn.run(app, host='0.0.0.0', port=7023)
